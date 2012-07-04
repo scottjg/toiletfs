@@ -7,6 +7,7 @@
 */
 
 #define FUSE_USE_VERSION 26
+#define _XOPEN_SOURCE 500
 
 #include <fuse.h>
 #include <stdio.h>
@@ -139,7 +140,8 @@ static int toilet_create(const char *path, mode_t mode,
 
 static int toilet_release(const char *path, struct fuse_file_info *fi)
 {
-	(void) path;
+	FIX_PATH(path);
+
 	close(fi->fh);
 	pthread_mutex_lock(&lock);
 	open_count--;
@@ -154,13 +156,25 @@ static int toilet_release(const char *path, struct fuse_file_info *fi)
 static int toilet_read(const char *path, char *buf, size_t size, off_t offset,
 		       struct fuse_file_info *fi)
 {
-	return 0;
+	(void)path;
+
+	int s = pread(fi->fh, buf, size, offset);
+	if (s == -1)
+		return -errno;
+
+	return s;
 }
 
-static int toilet_write(const char *path, char *buf, size_t size, off_t offset,
-			struct fuse_file_info *fi)
+static int toilet_write(const char *path, const char *buf, size_t size,
+			off_t offset, struct fuse_file_info *fi)
 {
-	return 0;
+	(void)path;
+
+	int s = pwrite(fi->fh, buf, size, offset);
+	if (s == -1)
+		return -errno;
+
+	return s;
 }
 
 static int toilet_truncate(const char *path, off_t size)
@@ -186,10 +200,10 @@ static struct fuse_operations toilet_oper = {
 	.getattr	= toilet_getattr,
 	.readdir	= toilet_readdir,
 	.open		= toilet_open,
-	.create     = toilet_create,
-	.release    = toilet_release,
+	.create		= toilet_create,
+	.release	= toilet_release,
 	.read		= toilet_read,
-	.read		= toilet_write,
+	.write		= toilet_write,
 	.truncate	= toilet_truncate,
 };
 
