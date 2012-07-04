@@ -86,10 +86,7 @@ static int toilet_preopen(const char *path)
 
 	pthread_mutex_lock(&lock);
 	if (open_count > 0) {
-		if (strcmp(opened_filename, path) == 0)
-			open_count++;
-		else
-			status = -EACCES;
+		status = -EACCES;
 	} else {
 		open_count++;
 		if (strlen(path) > FILENAME_MAX)
@@ -183,7 +180,7 @@ static int toilet_truncate(const char *path, off_t size)
 
 	FIX_PATH(path);
 	pthread_mutex_lock(&lock);
-	if (open_count > 0)
+	if (open_count > 0 && strcmp(path, opened_filename) != 0)
 		status = -EACCES;
 	pthread_mutex_unlock(&lock);
 
@@ -196,12 +193,21 @@ static int toilet_truncate(const char *path, off_t size)
 	return status;
 }
 
+static int toilet_unlink(const char *path)
+{
+	FIX_PATH(path);
+	if (unlink(path) != 0)
+		return -errno;
+	return 0;
+}
+
 static struct fuse_operations toilet_oper = {
 	.getattr	= toilet_getattr,
 	.readdir	= toilet_readdir,
 	.open		= toilet_open,
 	.create		= toilet_create,
 	.release	= toilet_release,
+	.unlink		= toilet_unlink,
 	.read		= toilet_read,
 	.write		= toilet_write,
 	.truncate	= toilet_truncate,
