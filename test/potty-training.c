@@ -60,7 +60,7 @@ void test_no_concurrent_coredumps()
 			}
 
 			*(char *)0 = 0;
-			return;
+			_exit(0);
 		}
 	}
 

@@ -17,6 +17,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <sys/wait.h>
 #include <assert.h>
 #include <pthread.h>
 
@@ -27,28 +28,38 @@ static char opened_filename[FILENAME_MAX + 1];
 #define CONFIG_PATH "/etc/toiletfs.conf"
 static struct {
 	char *backing_dir;
+	char *close_hook_script;
 } toilet_conf;
 
 
 static void toilet_read_config()
 {
+	int i;
 	FILE *fp = fopen(CONFIG_PATH, "r");
 	if (fp == NULL) {
 		perror("failed to open config file");
 		exit(1);
 	}
-	char *key, *value;
-	int count = fscanf(fp, "%as = %as", &key, &value);
-	if (count < 2) {
-		fprintf(stderr, "failed to parse %s\n", CONFIG_PATH);
-		exit(1);
+
+	for(i = 0; i < 2; i++) {
+		char *key, *value;
+		int count = fscanf(fp, "%as = %as", &key, &value);
+		if (count < 2) {
+			fprintf(stderr, "failed to parse %s\n", CONFIG_PATH);
+			exit(1);
+		}
+
+		if (strcmp(key, "backing-dir") == 0)
+			toilet_conf.backing_dir = value;
+		else if (strcmp(key, "close-hook-script") == 0)
+			toilet_conf.close_hook_script = value;
+		else {
+			fprintf(stderr, "unknown key '%s', failed to parse %s\n",
+				key, CONFIG_PATH);
+			exit(1);
+		}
+		free(key);
 	}
-	if (strcmp(key, "backing-dir") != 0) {
-		fprintf(stderr, "failed to parse %s\n", CONFIG_PATH);
-		exit(1);
-	}
-	free(key);
-	toilet_conf.backing_dir = value;
 }
 
 #define FIX_PATH(path) \
@@ -161,8 +172,23 @@ static int toilet_create(const char *path, mode_t mode,
 	return status;
 }
 
+static void exec_hook(const char *path)
+{
+	pid_t pid;
+	if(!toilet_conf.close_hook_script)
+		return;
+
+	pid = fork();
+	if (pid == 0) {
+		execl(toilet_conf.close_hook_script, toilet_conf.close_hook_script, path, NULL);
+		_exit(0);
+	}
+	wait(NULL);
+}
+
 static int toilet_release(const char *path, struct fuse_file_info *fi)
 {
+	int last_ref = 0;
 	FIX_PATH(path);
 
 	close(fi->fh);
@@ -170,7 +196,12 @@ static int toilet_release(const char *path, struct fuse_file_info *fi)
 	open_count--;
 	assert(open_count >= 0);
 	assert(strcmp(opened_filename, path) == 0);
+	if (open_count == 0)
+		last_ref = 1;
 	pthread_mutex_unlock(&lock);
+
+	if(last_ref)
+		exec_hook(path);
 
 	return 0;
 }
@@ -257,5 +288,6 @@ int main(int argc, char *argv[])
 	status = fuse_main(argc, argv, &toilet_oper, NULL);
 	pthread_mutex_destroy(&lock);
 	free(toilet_conf.backing_dir);
+	free(toilet_conf.close_hook_script);
 	return status;
 }
