@@ -45,9 +45,9 @@ void test_no_concurrent_coredumps()
 	char buf[128];
 	int len;
 
-	for(i=0; i < 5; i++) {
+	for (i=0; i < 5; i++) {
 		pid_t pid = fork();
-		if(pid == 0) {
+		if (pid == 0) {
 			struct rlimit limit = {-1, -1};
 			int i;
 			char *mem;
@@ -67,9 +67,9 @@ void test_no_concurrent_coredumps()
 	dumps = 0;
 	while (errno != ECHILD) {
 		pid_t pid = wait(&status);
-		if(pid < 0)
+		if (pid < 0)
 			continue;
-		else if(WIFSIGNALED(status) && WCOREDUMP(status))
+		else if (WIFSIGNALED(status) && WCOREDUMP(status))
 			dumps++;
 	}
 	assert(dumps == 1);
