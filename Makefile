@@ -1,6 +1,6 @@
 PROGRAM=toiletfsd
 SOURCES := $(wildcard *.c)
-CFLAGS=-Wall `pkg-config fuse --cflags`
+CFLAGS=-Wall -g `pkg-config fuse --cflags`
 LDFLAGS=`pkg-config fuse --libs`
 
 .SUFFIXES:
