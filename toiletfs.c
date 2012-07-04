@@ -11,6 +11,7 @@
 
 #include <fuse.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -19,8 +20,37 @@
 #include <assert.h>
 #include <pthread.h>
 
+static pthread_mutex_t lock;
+static int open_count;
+static char opened_filename[FILENAME_MAX + 1];
 
-#define BACKING_DIR "/tmp"
+#define CONFIG_PATH "/etc/toiletfs.conf"
+static struct {
+	char *backing_dir;
+} toilet_conf;
+
+
+static void toilet_read_config()
+{
+	FILE *fp = fopen(CONFIG_PATH, "r");
+	if (fp == NULL) {
+		perror("failed to open config file");
+		exit(1);
+	}
+	char *key, *value;
+	int count = fscanf(fp, "%as = %as", &key, &value);
+	if (count < 2) {
+		fprintf(stderr, "failed to parse %s\n", CONFIG_PATH);
+		exit(1);
+	}
+	if (strcmp(key, "backing-dir") != 0) {
+		fprintf(stderr, "failed to parse %s\n", CONFIG_PATH);
+		exit(1);
+	}
+	free(key);
+	toilet_conf.backing_dir = value;
+}
+
 #define FIX_PATH(path) \
 	do { \
 		if (path[0] == '/') \
@@ -28,10 +58,6 @@
 		else \
 			return -EINVAL; \
 	} while (0)
-
-static pthread_mutex_t lock;
-static int open_count;
-static char opened_filename[FILENAME_MAX + 1];
 
 static int toilet_getattr(const char *path, struct stat *stbuf)
 {
@@ -221,12 +247,15 @@ int main(int argc, char *argv[])
 		perror("Failed to init mutex");
 		return errno;
 	}
-	if (chdir(BACKING_DIR) != 0) {
+
+	toilet_read_config();
+	if (chdir(toilet_conf.backing_dir) != 0) {
 		perror("Failed to change working directory");
 		return errno;
 	}
 
 	status = fuse_main(argc, argv, &toilet_oper, NULL);
 	pthread_mutex_destroy(&lock);
+	free(toilet_conf.backing_dir);
 	return status;
 }
