@@ -1,0 +1,15 @@
+Source: toiletfs
+Section: utils
+Priority: extra
+Maintainer: Scott J. Goldman <scottjg@github.com>
+Build-Depends: debhelper (>= 7.0.50), python-support
+Standards-Version: 3.8.1
+Homepage: http://github.com/scottjg/toiletfs
+Vcs-Git: git://github.com/scottjg/toiletfs.git
+Vcs-Browser: https://github.com/scottjg/toiletfs
+
+Package: toiletfs
+Architecture: all
+Depends: ${misc:Depends}, fuse-utils (>= 2.2)
+Description: FUSE filesystem for storing coredumps
+ toiletfs is a FUSE-based filesystem to collect and store coredumps.

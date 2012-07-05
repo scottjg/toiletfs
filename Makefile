@@ -1,4 +1,4 @@
-PROGRAM=toiletfsd
+PROGRAM=toiletfs
 SOURCES := $(wildcard *.c)
 CFLAGS=-Wall -g `pkg-config fuse --cflags`
 LDFLAGS=`pkg-config fuse --libs`
@@ -20,3 +20,6 @@ test/potty-training: test/potty-training.c
 clean:
 	$(RM) $(SOURCES:.c=.o) $(PROGRAM)
 
+install:
+	install -m 755 toiletfs -D $(DESTDIR)/sbin/toiletfs
+	ln -s $(DESTDIR)/sbin/toiletfs $(DESTDIR)/sbin/mount.toiletfs
