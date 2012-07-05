@@ -8,6 +8,7 @@
 
 #define FUSE_USE_VERSION 26
 #define _XOPEN_SOURCE 500
+#define _BSD_SOURCE 1
 
 #include <fuse.h>
 #include <stdio.h>
@@ -29,6 +30,7 @@ static char opened_filename[FILENAME_MAX + 1];
 static struct {
 	char *backing_dir;
 	char *close_hook;
+	int max_files;
 } toilet_conf;
 
 #define FIX_PATH(path) \
@@ -108,6 +110,97 @@ static int toilet_preopen(const char *path)
 	return status;
 }
 
+static void exec_hook(const char *path)
+{
+	pid_t pid;
+	if (!toilet_conf.close_hook)
+		return;
+
+	pid = fork();
+	if (pid == 0) {
+		execl(toilet_conf.close_hook, toilet_conf.close_hook,
+		      path, NULL);
+		_exit(0);
+	}
+	wait(NULL);
+}
+
+static void toilet_preclose(const char *path, int skip_hook)
+{
+	int last_ref = 0;
+
+	pthread_mutex_lock(&lock);
+	open_count--;
+	assert(open_count >= 0);
+	assert(strcmp(opened_filename, path) == 0);
+	if (open_count == 0)
+		last_ref = 1;
+	pthread_mutex_unlock(&lock);
+
+	if (!skip_hook && last_ref)
+		exec_hook(path);
+
+}
+
+static int toilet_flush_cores(const char *path)
+{
+	DIR *dp;
+	int status = 0;
+	int num_cores = 0;
+	int max_filename = pathconf(path, _PC_NAME_MAX) + 1;
+	int len = offsetof(struct dirent, d_name) + max_filename;
+	struct dirent *de, *entry = malloc(len);
+
+	do {
+		dp = opendir(path);
+		time_t oldest_time = 0;
+		char oldest_name[max_filename];
+		if (dp == NULL) {
+			status = -errno;
+			goto cleanup;
+		}
+
+		num_cores = 0;
+		do {
+			struct stat s;
+
+			status = readdir_r(dp, entry, &de);
+			if (status != 0) {
+				status = -errno;
+				goto cleanup;
+			} else if (de == NULL)
+				break;
+			else if (de->d_type != DT_REG)
+				continue;
+
+			status = stat(de->d_name, &s);
+			if (status != 0) {
+				status = -errno;
+				goto cleanup;
+			}
+
+			if (oldest_time == 0 || s.st_atime < oldest_time) {
+				oldest_time = s.st_atime;
+				strncpy(oldest_name, de->d_name, len);
+			}
+			num_cores++;
+		} while (1);
+
+		if (num_cores >= toilet_conf.max_files) {
+			status = unlink(oldest_name);
+			if (status != 0) {
+				status = -errno;
+				goto cleanup;
+			}
+			num_cores--;
+		}
+	} while (num_cores >= toilet_conf.max_files);
+cleanup:
+	closedir(dp);
+	free(entry);
+	return status;
+}
+
 static int toilet_open(const char *path, struct fuse_file_info *fi)
 {
 	int status;
@@ -134,47 +227,29 @@ static int toilet_create(const char *path, mode_t mode,
 	FIX_PATH(path);
 
 	status = toilet_preopen(path);
-	if (status == 0) {
-		fd = creat(path, mode);
-		if (fd < 0)
-			status = -errno;
-		else
-			fi->fh = fd
-;	}
-	return status;
-}
+	if (status != 0)
+		return status;
 
-static void exec_hook(const char *path)
-{
-	pid_t pid;
-	if(!toilet_conf.close_hook)
-		return;
-
-	pid = fork();
-	if (pid == 0) {
-		execl(toilet_conf.close_hook, toilet_conf.close_hook,
-		      path, NULL);
-		_exit(0);
+	status = toilet_flush_cores(".");
+	if (status != 0) {
+		toilet_preclose(path, 1);
+		return status;
 	}
-	wait(NULL);
+
+	fd = creat(path, mode);
+	if (fd < 0) {
+		toilet_preclose(path, 1);
+		status = -errno;
+	} else
+		fi->fh = fd;
+	return status;
 }
 
 static int toilet_release(const char *path, struct fuse_file_info *fi)
 {
-	int last_ref = 0;
 	FIX_PATH(path);
 
-	pthread_mutex_lock(&lock);
-	open_count--;
-	assert(open_count >= 0);
-	assert(strcmp(opened_filename, path) == 0);
-	if (open_count == 0)
-		last_ref = 1;
-	pthread_mutex_unlock(&lock);
-
-	if(last_ref)
-		exec_hook(path);
-
+	toilet_preclose(path, 0);
 	/*
 	 * Call the hook before the file closes. That way the segfaulting
 	 * process should stay open and we can do some process introspection
@@ -261,9 +336,10 @@ static struct fuse_operations toilet_oper = {
 
 static struct fuse_opt toilet_opts[] =
 {
-    { "backing_dir=%s", offsetof(typeof(toilet_conf), backing_dir), 0 },
-    { "close_hook=%s", offsetof(typeof(toilet_conf), close_hook), 0 },
-    FUSE_OPT_END
+	{ "backing_dir=%s", offsetof(typeof(toilet_conf), backing_dir), 0 },
+	{ "close_hook=%s", offsetof(typeof(toilet_conf), close_hook), 0 },
+	{ "max_files=%d", offsetof(typeof(toilet_conf), max_files), 0 },
+	FUSE_OPT_END
 };
 
 int main(int argc, char *argv[])
@@ -277,6 +353,9 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "Need to specify backing_dir mount option!\n");
 		return 1;
 	}
+
+	if (toilet_conf.max_files == 0)
+		toilet_conf.max_files = 5;
 
 	if (pthread_mutex_init(&lock, NULL) != 0) {
 		perror("Failed to init mutex");

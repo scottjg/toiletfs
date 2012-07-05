@@ -14,6 +14,7 @@
 #include <sys/resource.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <assert.h>
 
 void test_no_concurrent_opens()
@@ -77,6 +78,29 @@ void test_no_concurrent_coredumps()
 	//XXX need to unlink coredump
 }
 
+void test_rotation()
+{
+	int i;
+	char file[32];
+	struct stat s;
+	for (i = 0; i < 7; i++) {
+		FILE *fp;
+		sprintf(file, "test%d", i);
+		fp = fopen(file, "w");
+		fclose(fp);
+		sleep(1);
+	}
+
+	assert(stat("test0", &s) != 0);
+	assert(stat("test1", &s) != 0);
+
+	for (i = 2; i < 7; i++) {
+		sprintf(file, "test%d", i);
+		assert(stat(file, &s) == 0);
+		unlink(file);
+	}
+}
+
 int main(int argc, char **argv)
 {
 	char *test_mount = argv[1];
@@ -94,6 +118,7 @@ int main(int argc, char **argv)
 	printf("Testing...\n");
 	test_no_concurrent_opens();
 	test_no_concurrent_coredumps();
+	test_rotation();
 	printf("All tests passed!\n");
 
 	return 0;
