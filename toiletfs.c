@@ -12,6 +12,7 @@
 #include <fuse.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -25,42 +26,10 @@ static pthread_mutex_t lock;
 static int open_count;
 static char opened_filename[FILENAME_MAX + 1];
 
-#define CONFIG_PATH "/etc/toiletfs.conf"
 static struct {
 	char *backing_dir;
-	char *close_hook_script;
+	char *close_hook;
 } toilet_conf;
-
-
-static void toilet_read_config()
-{
-	int i;
-	FILE *fp = fopen(CONFIG_PATH, "r");
-	if (fp == NULL) {
-		perror("failed to open config file");
-		exit(1);
-	}
-
-	for(i = 0; i < 2; i++) {
-		char *key, *value;
-		int count = fscanf(fp, "%as = %as", &key, &value);
-		if (count < 2) {
-			fprintf(stderr, "failed to parse %s\n", CONFIG_PATH);
-			exit(1);
-		}
-
-		if (strcmp(key, "backing-dir") == 0)
-			toilet_conf.backing_dir = value;
-		else if (strcmp(key, "close-hook-script") == 0)
-			toilet_conf.close_hook_script = value;
-		else {
-			fprintf(stderr, "unknown key '%s', failed to parse %s\n",
-				key, CONFIG_PATH);
-			exit(1);
-		}
-		free(key);
-	}
-}
 
 #define FIX_PATH(path) \
 	do { \
@@ -70,16 +39,19 @@ static void toilet_read_config()
 			return -EINVAL; \
 	} while (0)
 
+
+
 static int toilet_getattr(const char *path, struct stat *stbuf)
 {
 	memset(stbuf, 0, sizeof(struct stat));
-	if (strcmp(path, "/") == 0) {
+
+	FIX_PATH(path);
+	if (strcmp(path, "") == 0) {
 		if (lstat(".", stbuf) != 0)
 			return -errno;
 		return 0;
 	}
 
-	FIX_PATH(path);
 	if (lstat(path, stbuf) != 0)
 		return -errno;
 	return 0;
@@ -94,10 +66,10 @@ static int toilet_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	(void)offset;
 	(void)fi;
 
-	if (strcmp(path, "/") == 0) {
+	FIX_PATH(path);
+	if (strcmp(path, "") == 0) {
 		dp = opendir(".");
 	} else {
-		FIX_PATH(path);
 		dp = opendir(path);
 	}
 
@@ -175,12 +147,13 @@ static int toilet_create(const char *path, mode_t mode,
 static void exec_hook(const char *path)
 {
 	pid_t pid;
-	if(!toilet_conf.close_hook_script)
+	if(!toilet_conf.close_hook)
 		return;
 
 	pid = fork();
 	if (pid == 0) {
-		execl(toilet_conf.close_hook_script, toilet_conf.close_hook_script, path, NULL);
+		execl(toilet_conf.close_hook, toilet_conf.close_hook,
+		      path, NULL);
 		_exit(0);
 	}
 	wait(NULL);
@@ -258,6 +231,16 @@ static int toilet_unlink(const char *path)
 	return 0;
 }
 
+void *toilet_init(struct fuse_conn_info *conn)
+{
+	if (chdir(toilet_conf.backing_dir) != 0) {
+		perror("Failed to change working directory");
+		exit(1);
+	}
+
+	return NULL;
+}
+
 static struct fuse_operations toilet_oper = {
 	.getattr	= toilet_getattr,
 	.readdir	= toilet_readdir,
@@ -268,26 +251,34 @@ static struct fuse_operations toilet_oper = {
 	.read		= toilet_read,
 	.write		= toilet_write,
 	.truncate	= toilet_truncate,
+	.init		= toilet_init,
+};
+
+static struct fuse_opt toilet_opts[] =
+{
+    { "backing_dir=%s", offsetof(typeof(toilet_conf), backing_dir), 0 },
+    { "close_hook=%s", offsetof(typeof(toilet_conf), close_hook), 0 },
+    FUSE_OPT_END
 };
 
 int main(int argc, char *argv[])
 {
 	int status;
+	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
+	if (fuse_opt_parse(&args, &toilet_conf, toilet_opts, NULL) == -1)
+		return 1;
+
+	if (!toilet_conf.backing_dir) {
+		fprintf(stderr, "Need to specify backing_dir mount option!\n");
+		return 1;
+	}
 
 	if (pthread_mutex_init(&lock, NULL) != 0) {
 		perror("Failed to init mutex");
 		return errno;
 	}
 
-	toilet_read_config();
-	if (chdir(toilet_conf.backing_dir) != 0) {
-		perror("Failed to change working directory");
-		return errno;
-	}
-
-	status = fuse_main(argc, argv, &toilet_oper, NULL);
+	status = fuse_main(args.argc, args.argv, &toilet_oper, NULL);
 	pthread_mutex_destroy(&lock);
-	free(toilet_conf.backing_dir);
-	free(toilet_conf.close_hook_script);
 	return status;
 }

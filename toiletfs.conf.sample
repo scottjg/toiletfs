@@ -1,2 +1,0 @@
-backing-dir = /var/cores
-close-hook-script = /var/cores/test.sh
