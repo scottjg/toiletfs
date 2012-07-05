@@ -164,7 +164,6 @@ static int toilet_release(const char *path, struct fuse_file_info *fi)
 	int last_ref = 0;
 	FIX_PATH(path);
 
-	close(fi->fh);
 	pthread_mutex_lock(&lock);
 	open_count--;
 	assert(open_count >= 0);
@@ -176,6 +175,12 @@ static int toilet_release(const char *path, struct fuse_file_info *fi)
 	if(last_ref)
 		exec_hook(path);
 
+	/*
+	 * Call the hook before the file closes. That way the segfaulting
+	 * process should stay open and we can do some process introspection
+	 * in the script.
+	 */
+	close(fi->fh);
 	return 0;
 }
 
@@ -231,7 +236,7 @@ static int toilet_unlink(const char *path)
 	return 0;
 }
 
-void *toilet_init(struct fuse_conn_info *conn)
+static void *toilet_init(struct fuse_conn_info *conn)
 {
 	if (chdir(toilet_conf.backing_dir) != 0) {
 		perror("Failed to change working directory");
