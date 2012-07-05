@@ -22,8 +22,7 @@ So...
 -----
 toiletfs solves this problem by allowing only a single file to be opened at
 a time. When the kernel tries to open a dozen cores on disk, the first will
-succeed, and the rest will fail. Also, when the file is done being written to
-disk.
+succeed, and the rest will fail. 
 
 toiletfs also supports a executing a shell script after close(), to create a
 bug report, or alert your monitoring infrastructure.
@@ -34,4 +33,4 @@ https://bugzilla.redhat.com/show_bug.cgi?id=566460
 At some point I'd like to go back and fix this in the kernel, but for
 production servers, I'd like a solution right now. The kernel fix is complicated
 enough that it likely won't be eligible for backport into a stable distribution
-and I'd prefer to avoid maintaining my own binary kernel packages.
+kernel and I'd prefer to avoid maintaining my own binary kernel packages.
