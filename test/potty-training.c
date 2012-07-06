@@ -20,7 +20,7 @@
 void test_no_concurrent_opens()
 {
 	FILE *fp, *bad_fp;
-	
+
 	fp = fopen("test", "w");
 	assert(fp);
 

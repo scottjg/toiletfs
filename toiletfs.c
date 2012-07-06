@@ -29,7 +29,7 @@ static char opened_filename[FILENAME_MAX + 1];
 
 static struct {
 	char *backing_dir;
-	char *close_hook;
+	char *flush_hook;
 	int max_files;
 } toilet_conf;
 
@@ -113,19 +113,19 @@ static int toilet_preopen(const char *path)
 static void exec_hook(const char *path)
 {
 	pid_t pid;
-	if (!toilet_conf.close_hook)
+	if (!toilet_conf.flush_hook)
 		return;
 
 	pid = fork();
 	if (pid == 0) {
-		execl(toilet_conf.close_hook, toilet_conf.close_hook,
+		execl(toilet_conf.flush_hook, toilet_conf.flush_hook,
 		      path, NULL);
 		_exit(0);
 	}
 	wait(NULL);
 }
 
-static void toilet_preclose(const char *path, int skip_hook)
+static void toilet_preclose(const char *path)
 {
 	int last_ref = 0;
 
@@ -136,13 +136,9 @@ static void toilet_preclose(const char *path, int skip_hook)
 	if (open_count == 0)
 		last_ref = 1;
 	pthread_mutex_unlock(&lock);
-
-	if (!skip_hook && last_ref)
-		exec_hook(path);
-
 }
 
-static int toilet_flush_cores(const char *path)
+static int toilet_plunge_cores(const char *path)
 {
 	DIR *dp;
 	int status = 0;
@@ -233,31 +229,34 @@ static int toilet_create(const char *path, mode_t mode,
 	if (status != 0)
 		return status;
 
-	status = toilet_flush_cores(".");
+	status = toilet_plunge_cores(".");
 	if (status != 0) {
-		toilet_preclose(path, 1);
+		toilet_preclose(path);
 		return status;
 	}
 
 	fd = creat(path, mode);
 	if (fd < 0) {
-		toilet_preclose(path, 1);
+		toilet_preclose(path);
 		status = -errno;
 	} else
 		fi->fh = fd;
 	return status;
 }
 
+static int toilet_flush(const char *path, struct fuse_file_info *fi)
+{
+	FIX_PATH(path);
+	exec_hook(path);
+
+	return 0;
+}
+
 static int toilet_release(const char *path, struct fuse_file_info *fi)
 {
 	FIX_PATH(path);
 
-	toilet_preclose(path, 0);
-	/*
-	 * Call the hook before the file closes. That way the segfaulting
-	 * process should stay open and we can do some process introspection
-	 * in the script.
-	 */
+	toilet_preclose(path);
 	close(fi->fh);
 	return 0;
 }
@@ -329,6 +328,7 @@ static struct fuse_operations toilet_oper = {
 	.readdir	= toilet_readdir,
 	.open		= toilet_open,
 	.create		= toilet_create,
+	.flush		= toilet_flush,
 	.release	= toilet_release,
 	.unlink		= toilet_unlink,
 	.read		= toilet_read,
@@ -340,7 +340,7 @@ static struct fuse_operations toilet_oper = {
 static struct fuse_opt toilet_opts[] =
 {
 	{ "backing_dir=%s", offsetof(typeof(toilet_conf), backing_dir), 0 },
-	{ "close_hook=%s", offsetof(typeof(toilet_conf), close_hook), 0 },
+	{ "flush_hook=%s", offsetof(typeof(toilet_conf), flush_hook), 0 },
 	{ "max_files=%d", offsetof(typeof(toilet_conf), max_files), 0 },
 	FUSE_OPT_END
 };
