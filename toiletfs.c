@@ -151,6 +151,9 @@ static int toilet_flush_cores(const char *path)
 	int len = offsetof(struct dirent, d_name) + max_filename;
 	struct dirent *de, *entry = malloc(len);
 
+	if (toilet_conf.max_files <= 0)
+		return 0;
+
 	do {
 		dp = opendir(path);
 		time_t oldest_time = 0;
@@ -353,9 +356,6 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "Need to specify backing_dir mount option!\n");
 		return 1;
 	}
-
-	if (toilet_conf.max_files == 0)
-		toilet_conf.max_files = 5;
 
 	if (pthread_mutex_init(&lock, NULL) != 0) {
 		perror("Failed to init mutex");
