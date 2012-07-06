@@ -19,16 +19,17 @@
 
 void test_no_concurrent_opens()
 {
-	FILE *fp, *bad_fp;
+	FILE *fp, *fp1, *bad_fp;
 
 	fp = fopen("test", "w");
 	assert(fp);
 
-	bad_fp = fopen("test", "w");
+	bad_fp = fopen("nope", "w");
 	assert(!bad_fp);
 
-	bad_fp = fopen("nope", "r");
-	assert(!bad_fp);
+	fp1 = fopen("test", "r");
+	assert(fp1);
+	fclose(fp1);
 
 	fclose(fp);
 	fp = fopen("test again", "w");

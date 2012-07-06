@@ -15,7 +15,7 @@ $(PROGRAM): $(SOURCES:.c=.o)
 	$(CC) $(LDFLAGS) -o $@ $^
 
 test/potty-training: test/potty-training.c
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(CC) -g $(LDFLAGS) -o $@ $^
 
 clean:
 	$(RM) $(SOURCES:.c=.o) $(PROGRAM)

@@ -42,7 +42,6 @@ static struct {
 	} while (0)
 
 
-
 static int toilet_getattr(const char *path, struct stat *stbuf)
 {
 	memset(stbuf, 0, sizeof(struct stat));
@@ -127,14 +126,12 @@ static void exec_hook(const char *path)
 
 static void toilet_preclose(const char *path)
 {
-	int last_ref = 0;
-
 	pthread_mutex_lock(&lock);
-	open_count--;
-	assert(open_count >= 0);
-	assert(strcmp(opened_filename, path) == 0);
-	if (open_count == 0)
-		last_ref = 1;
+	if (strcmp(opened_filename, path) == 0) {
+		open_count--;
+		opened_filename[0] = '\0';
+		assert(open_count >= 0);
+	}
 	pthread_mutex_unlock(&lock);
 }
 
@@ -206,7 +203,11 @@ static int toilet_open(const char *path, struct fuse_file_info *fi)
 	int fd;
 	FIX_PATH(path);
 
-	status = toilet_preopen(path);
+	if (fi->flags & (O_WRONLY|O_RDWR))
+		status = toilet_preopen(path);
+	else
+		status = 0;
+
 	if (status == 0) {
 		fd = open(path, fi->flags);
 		if (fd < 0)
@@ -246,8 +247,16 @@ static int toilet_create(const char *path, mode_t mode,
 
 static int toilet_flush(const char *path, struct fuse_file_info *fi)
 {
+	int writing;
 	FIX_PATH(path);
-	exec_hook(path);
+
+	pthread_mutex_lock(&lock);
+	if (strcmp(path, opened_filename) == 0)
+		writing = 1;
+	pthread_mutex_unlock(&lock);
+
+	if (writing)
+		exec_hook(path);
 
 	return 0;
 }
