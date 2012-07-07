@@ -22,4 +22,4 @@ clean:
 
 install:
 	install -m 755 toiletfs -D $(DESTDIR)/sbin/toiletfs
-	ln -s $(DESTDIR)/sbin/toiletfs $(DESTDIR)/sbin/mount.toiletfs
+	ln -s toiletfs $(DESTDIR)/sbin/mount.toiletfs
