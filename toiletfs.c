@@ -57,6 +57,26 @@ static int toilet_getattr(const char *path, struct stat *stbuf)
 
 	if (lstat(path, stbuf) != 0)
 		return -errno;
+
+	pthread_mutex_lock(&lock);
+	if (strcmp(opened_filename, path) == 0) {
+	  /* 
+	   * Coredumps are created with the uid/gid of the crashing process.
+	   * The kernel will abort the dump if it notices that the uid/gid
+	   * has changed after create(). This is problematic because all
+	   * files are created from the context of our fuse daemon (i.e. with
+	   * a different uid/gid). 
+	   *
+	   * So, if we've already managed to open the file successfully,
+	   * patch the uid/gid to be what the kernel expects, to avoid
+	   * aborting the dump.
+	   */
+	  struct fuse_context *fc = fuse_get_context();
+	  stbuf->st_uid = fc->uid;
+	  stbuf->st_gid = fc->gid;
+	}
+	pthread_mutex_unlock(&lock);
+
 	return 0;
 }
 
