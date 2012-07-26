@@ -25,7 +25,7 @@
 
 static pthread_mutex_t lock;
 static int open_count;
-static int curr_filesize;
+static size_t curr_filesize;
 static char opened_filename[FILENAME_MAX + 1];
 
 static struct {
