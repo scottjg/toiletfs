@@ -25,12 +25,14 @@
 
 static pthread_mutex_t lock;
 static int open_count;
+static int curr_filesize;
 static char opened_filename[FILENAME_MAX + 1];
 
 static struct {
 	char *backing_dir;
 	char *flush_hook;
 	int max_files;
+	int max_filesize;
 } toilet_conf;
 
 #define FIX_PATH(path) \
@@ -99,6 +101,7 @@ static int toilet_preopen(const char *path)
 		status = -EACCES;
 	} else {
 		open_count++;
+		curr_filesize = 0;
 		if (strlen(path) > FILENAME_MAX)
 			status = -EINVAL;
 		else
@@ -291,7 +294,9 @@ static int toilet_write(const char *path, const char *buf, size_t size,
 	int s = pwrite(fi->fh, buf, size, offset);
 	if (s == -1)
 		return -errno;
-
+	curr_filesize += size;
+	if (curr_filesize > toilet_conf.max_filesize)
+		return -ENOSPC;
 	return s;
 }
 
@@ -305,6 +310,7 @@ static int toilet_truncate(const char *path, off_t size)
 		status = -EACCES;
 	pthread_mutex_unlock(&lock);
 
+	curr_filesize = 0;
 	if (status == 0) {
 		status = truncate(path, size);
 		if (status == -1)
@@ -351,6 +357,7 @@ static struct fuse_opt toilet_opts[] =
 	{ "backing_dir=%s", offsetof(typeof(toilet_conf), backing_dir), 0 },
 	{ "flush_hook=%s", offsetof(typeof(toilet_conf), flush_hook), 0 },
 	{ "max_files=%d", offsetof(typeof(toilet_conf), max_files), 0 },
+	{ "max_filesize=%d", offsetof(typeof(toilet_conf), max_filesize), 0 },
 	FUSE_OPT_END
 };
 
