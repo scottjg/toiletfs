@@ -32,7 +32,7 @@ static struct {
 	char *backing_dir;
 	char *flush_hook;
 	int max_files;
-	int max_filesize;
+	long long int max_filesize;
 } toilet_conf;
 
 #define FIX_PATH(path) \
@@ -315,8 +315,10 @@ static int toilet_write(const char *path, const char *buf, size_t size,
 	if (s == -1)
 		return -errno;
 	curr_filesize += size;
-	if (curr_filesize > toilet_conf.max_filesize)
+	if (toilet_conf.max_filesize) {
+	  if (curr_filesize > toilet_conf.max_filesize)
 		return -ENOSPC;
+	}
 	return s;
 }
 
@@ -377,7 +379,7 @@ static struct fuse_opt toilet_opts[] =
 	{ "backing_dir=%s", offsetof(typeof(toilet_conf), backing_dir), 0 },
 	{ "flush_hook=%s", offsetof(typeof(toilet_conf), flush_hook), 0 },
 	{ "max_files=%d", offsetof(typeof(toilet_conf), max_files), 0 },
-	{ "max_filesize=%d", offsetof(typeof(toilet_conf), max_filesize), 0 },
+	{ "max_filesize=%lld", offsetof(typeof(toilet_conf), max_filesize), 0 },
 	FUSE_OPT_END
 };
 
