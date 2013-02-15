@@ -12,7 +12,7 @@ test: test/potty-training
 	$(CC) -c $(CFLAGS) -o $@ $<
 
 $(PROGRAM): $(SOURCES:.c=.o)
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(CC) -o $@ $^ $(LDFLAGS)
 
 test/potty-training: test/potty-training.c
 	$(CC) -g $(LDFLAGS) -o $@ $^
